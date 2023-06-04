@@ -1,13 +1,17 @@
 # see https://ipython.org/ipython-doc/3/config/custommagics.html
 # for more details on the implementation here
 import json
+import os
 import time
 import uuid
 
+import telegram_notify
 from IPython.core.getipython import get_ipython
-from IPython.core.magic import cell_magic, line_cell_magic, line_magic, Magics, magics_class
-from IPython.core.magic_arguments import argument, magic_arguments, parse_argstring
-from IPython.display import display, Javascript
+from IPython.core.magic import (Magics, cell_magic, line_cell_magic,
+                                line_magic, magics_class)
+from IPython.core.magic_arguments import (argument, magic_arguments,
+                                          parse_argstring)
+from IPython.display import Javascript, display
 from pkg_resources import resource_filename
 
 
@@ -22,13 +26,12 @@ class JupyterNotifyMagics(Magics):
 
     def __init__(self, shell, require_interaction=False):
         super(JupyterNotifyMagics, self).__init__(shell)
-        with open(resource_filename("jupyternotify", "js/init.js")) as jsFile:
-            jsString = jsFile.read()
-        display(Javascript(jsString))
         self.options = {
             "requireInteraction": require_interaction,
             "icon": "/static/base/images/favicon.ico",
         }
+        self.telegram_api_key = os.environ['TELEGRAM_API_KEY']
+        self.telegram_chat_id = os.environ['TELEGRAM_CHAT_ID']
 
     @magic_arguments()
     @argument(
@@ -44,51 +47,28 @@ class JupyterNotifyMagics(Magics):
     )
     @line_cell_magic
     def notify(self, line, cell=None):
-
-        # Duplicate options to allow notifications running in the same cell to
-        # have separate messages.
-        options = dict(self.options)
-
         # custom message
         args = parse_argstring(self.notify, line)
-        options["body"] = args.message.lstrip("\'\"").rstrip("\'\"")
-
-        # generate a uuid so that we only deliver this notification once, not again
-        # when the browser reloads (we append a div to check that)
-        notification_uuid = uuid.uuid4()
+        message = args.message.lstrip("\'\"").rstrip("\'\"")
 
         # Run cell if its cell magic
         if cell is not None:
+            execution_start = time.time()
             output = get_ipython().run_cell(cell)
+            execution_time = time.time() - execution_start
+
+            if output.error_before_exec or output.error_in_exec:
+                message = f'Cell Execution failed: {output.error_before_exec or output.error_in_exec}'
 
             # prevent autonotify from firing with notify cell magic
             self.__class__.notification_uuid = None
 
-            # Get cell output and set as message
-            if args.output and output.result is not None:
-                try:
-                    options['body'] = str(output.result)
-                except ValueError:
-                    pass # can't convert to string. Use default message
-
-
         # display our browser notification using javascript
-        self.display_notification(options, notification_uuid)
+        self.display_notification(message)
 
 
-    def display_notification(self, options=None, notification_uuid=None):
-        if options is None:
-            options = self.options
-        if notification_uuid is None:
-            notification_uuid = uuid.uuid4()
-
-        # display our browser notification using javascript
-        with open(resource_filename("jupyternotify", "js/notify.js")) as jsFile:
-            jsString = jsFile.read()
-        display(Javascript(jsString % {
-            "notification_uuid": notification_uuid,
-            "options": json.dumps(options),
-        }))
+    def display_notification(self, message: str):
+        telegram_notify.notify(message, self.telegram_api_key, self.telegram_chat_id)
 
 
     @magic_arguments()
@@ -99,7 +79,7 @@ class JupyterNotifyMagics(Magics):
     @argument(
         "-m",
         "--message",
-        default="Cell Execution Has Finished!!",
+        default="Cell Execution Has Finished!",
         help="Custom notification message"
     )
     @argument(
@@ -115,7 +95,7 @@ class JupyterNotifyMagics(Magics):
         self.options['autonotify_after'] = args.after
         self.options['autonotify_output'] = args.output
 
-        ### Register events
+        ## Register events
         ip = get_ipython()
 
         # Remove events if they're already registered
@@ -138,8 +118,8 @@ class JupyterNotifyMagics(Magics):
         self.__class__.notification_uuid = uuid.uuid4()
 
     def post_run_cell(self):
+        # TODO detect if the cell execution failed
         options = dict(self.options)
-
         # Set last output as notification message
         if self.options.get('autonotify_output'):
             last_output = get_ipython().user_global_ns['_']
@@ -151,16 +131,16 @@ class JupyterNotifyMagics(Magics):
                 pass # can't convert to string. Use default message
 
         # allow notify to stop autonotify
-        if not self.__class__.notification_uuid: 
+        if not self.__class__.notification_uuid:
             return
         # Check autonotify options and perform checks
-        elif self.check_after(): 
+        elif self.check_after():
             pass
         # maybe add other triggers here too
         # example/idea: autonotify if browser window not in focus
-        else: 
+        else:
             return
-        self.display_notification(options, self.__class__.notification_uuid)
+        self.display_notification(message='Cell Execution Has Finished!')
 
 
     def check_after(self):
