@@ -5,7 +5,6 @@ import os
 import time
 import uuid
 
-import telegram_notify
 from IPython.core.getipython import get_ipython
 from IPython.core.magic import (Magics, cell_magic, line_cell_magic,
                                 line_magic, magics_class)
@@ -13,6 +12,8 @@ from IPython.core.magic_arguments import (argument, magic_arguments,
                                           parse_argstring)
 from IPython.display import Javascript, display
 from pkg_resources import resource_filename
+
+import jupyternotify.telegram_notify
 
 
 @magics_class
