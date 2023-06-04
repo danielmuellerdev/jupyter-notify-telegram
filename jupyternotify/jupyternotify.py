@@ -13,7 +13,7 @@ from IPython.core.magic_arguments import (argument, magic_arguments,
 from IPython.display import Javascript, display
 from pkg_resources import resource_filename
 
-import jupyternotify.telegram_notify
+from jupyternotify import telegram_notify
 
 
 @magics_class
